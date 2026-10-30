@@ -1,0 +1,14 @@
+import 'dotenv/config';
+import express from 'express';
+import cors from 'cors';
+import pg from 'pg';
+import path from 'path';
+import { fileURLToPath } from 'url';
+const app=express(); const __dirname=path.dirname(fileURLToPath(import.meta.url));
+app.use(cors()); app.use(express.json({limit:'2mb'}));
+const pool=process.env.DATABASE_URL?new pg.Pool({connectionString:process.env.DATABASE_URL,ssl:process.env.NODE_ENV==='production'?{rejectUnauthorized:false}:false}):null;
+app.get('/api/health',(_,res)=>res.json({ok:true,app:'DOMLY'}));
+app.get('/api/listings',async(_,res)=>{if(!pool)return res.json([]);try{const r=await pool.query("SELECT id,title,price_uah,city,rooms,bathrooms,area_m2,description FROM listings WHERE status='published' ORDER BY created_at DESC");res.json(r.rows)}catch(e){res.status(500).json({error:'Не вдалося завантажити оголошення'})}});
+app.post('/api/listings',async(req,res)=>{if(!pool)return res.status(503).json({error:'База даних ще не підключена'});const {title,price,city,rooms,baths,area,description,contact}=req.body;if(!title||!price||!city||!area||!contact)return res.status(400).json({error:'Заповніть обов’язкові поля'});try{const r=await pool.query(`INSERT INTO listings(title,price_uah,city,rooms,bathrooms,area_m2,description,contact,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'pending_payment') RETURNING id`,[title,price,city,rooms,baths,area,description||'',contact]);res.status(201).json({id:r.rows[0].id,status:'pending_payment',message:'Оголошення створено. Далі потрібна оплата.'})}catch(e){res.status(500).json({error:'Помилка збереження оголошення'})}});
+app.use(express.static(path.join(__dirname,'dist')));app.get('*',(_,res)=>res.sendFile(path.join(__dirname,'dist','index.html')));
+const port=process.env.PORT||3000;app.listen(port,'0.0.0.0',()=>console.log(`DOMLY server running on ${port}`));
